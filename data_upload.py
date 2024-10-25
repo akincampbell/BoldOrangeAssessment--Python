@@ -3,7 +3,7 @@ import requests
 import json
 
 # Constants
-API_URL = "https://datalake.apidocs.boldorange.com"  # Replace with actual API URL
+API_URL = "https://datalake.apidocs.boldorange.com/collections/AkinExample"  # Replace with actual API URL
 USERNAME = "acampbell"  # Replace with the provided username
 PASSWORD = "rVZ3FkzqcGawjEM952PWL6"  # Replace with the provided password
 COLLECTION_NAME = "AkinExample"  # Change this to your collection name
