@@ -1,39 +1,125 @@
 import pandas as pd
 import requests
 import json
+import os
 
 # Constants
-API_URL = "https://datalake.apidocs.boldorange.com/collections/AkinExample"  # Replace with actual API URL
-USERNAME = "acampbell"  # Replace with the provided username
-PASSWORD = "rVZ3FkzqcGawjEM952PWL6"  # Replace with the provided password
+API_URL = "https://datalake.boldorange.com/api/v1"  # Base URL for the API
+USERNAME = "acampbell"  # Replace with your username
+PASSWORD = "rVZ3FkzqcGawjEM952PWL6"  # Replace with your password
 COLLECTION_NAME = "AkinExample"  # Change this to your collection name
 
-# Step 1: Read the CSV file
-def read_csv(file_path):
-    data = pd.read_csv(file_path)
-    return data
+# Define the path to the CSV file
+file_path = os.path.join(os.path.dirname(__file__), "DeveloperAssessmentData.csv")  # Corrected filename
 
-# Step 2: Prepare the data for API
-def prepare_data(data):
-    # Assuming the data needs to be converted to a list of dictionaries
-    return data.to_dict(orient='records')
+# Check the current directory for files
+print("Files in the current directory:")
+print(os.listdir(os.path.dirname(__file__)))  # Lists all files in the directory
 
-# Step 3: Authenticate and get token
+# Check if the file exists before attempting to read it
+if not os.path.isfile(file_path):
+    raise FileNotFoundError(f"The file {file_path} does not exist. Please check the file name and path.")
+
+# Step 1: Authenticate and get token
 def authenticate():
-    auth_url = f"{API_URL}/auth"  # Adjust based on actual endpoint
-    response = requests.post(auth_url, json={"username": USERNAME, "password": PASSWORD})
+    auth_url = f"{API_URL}/authenticate"  # Authentication URL
+    payload = {
+        "username": USERNAME,
+        "password": PASSWORD,
+        "grant": "password"  # Set the grant type to "password"
+    }
+    response = requests.post(auth_url, json=payload)
+
+    # Debugging output
+    print(f"Response Status Code: {response.status_code}")  # Print the status code
+    print(f"Response Content: {response.text}")  # Print the content of the response
+
     if response.status_code == 200:
-        return response.json()["token"]
+        return response.json()["accesstoken"]  # Access the correct key for the token
     else:
         raise Exception("Authentication failed.")
 
-# Step 4: Send data to Data Lake
+# Step 2: Read the CSV file
+def read_csv(file_path):
+    data = pd.read_csv(file_path, delimiter='|')  # Specify '|' as the delimiter
+    data.columns = data.columns.str.strip().str.replace(',', '')  # Clean column names and remove commas
+    print("Columns in the DataFrame:", data.columns.tolist())  # Print column names
+    print("Sample Data:\n", data.head())  # Print first few rows of data
+    return data
+
+# Helper function to convert to float and handle special cases
+def to_float(value):
+    if pd.isna(value) or value in ['-', '']:  # Handle NaN, '-' or empty string
+        return 0.0  # You can adjust this if you prefer np.nan
+    try:
+        # Attempt to clean and convert the value
+        return float(str(value).replace('$', '').replace(',', '').strip())
+    except ValueError:
+        print(f"Warning: Could not convert '{value}' to float. Setting to 0.0.")
+        return 0.0  # or handle it as needed
+
+# Helper function to clean year values
+def clean_year(value):
+    if pd.isna(value):
+        return 0  # or use np.nan based on your needs
+    try:
+        return int(str(value).strip().replace(',', ''))  # Clean and convert year
+    except ValueError:
+        print(f"Warning: Could not convert '{value}' to int. Setting to 0.")
+        return 0  # or handle it as needed
+
+# Step 3: Prepare the data for API
+def prepare_data(data):
+    items = []
+    for index, row in data.iterrows():
+        item = {
+            "Key": f"item{index + 1}",  # Unique key for each item
+            "Attributes": [
+                {"Name": "Segment", "Type": "string", "Value": row['Segment']},
+                {"Name": "Country", "Type": "string", "Value": row['Country']},
+                {"Name": "Product", "Type": "string", "Value": row['Product']},
+                {"Name": "DiscountBand", "Type": "string", "Value": row['DiscountBand']},
+                {"Name": "UnitsSold", "Type": "number", "Value": to_float(row['UnitsSold'])},  # Use helper function
+                {"Name": "ManufacturingPrice", "Type": "number", "Value": to_float(row['ManufacturingPrice'])},  # Use helper function
+                {"Name": "SalePrice", "Type": "number", "Value": to_float(row['SalePrice'])},  # Use helper function
+                {"Name": "GrossSales", "Type": "number", "Value": to_float(row['GrossSales'])},  # Use helper function
+                {"Name": "Discounts", "Type": "number", "Value": to_float(row['Discounts'])},  # Use helper function
+                {"Name": "Sales", "Type": "number", "Value": to_float(row['Sales'])},  # Use helper function
+                {"Name": "COGS", "Type": "number", "Value": to_float(row['COGS'])},  # Use helper function
+                {"Name": "Profit", "Type": "number", "Value": to_float(row['Profit'])},  # Use helper function
+                {"Name": "Date", "Type": "string", "Value": row['Date']},  # Keep as string
+                {"Name": "MonthNumber", "Type": "number", "Value": int(row['MonthNumber'])},  # Convert to int
+                {"Name": "MonthName", "Type": "string", "Value": row['MonthName']},
+                {"Name": "Year", "Type": "number", "Value": clean_year(row['Year'])}  # Clean and convert year
+            ]
+        }
+        items.append(item)
+    
+    # Construct the final payload
+    payload = {
+        "CollectionName": COLLECTION_NAME,
+        "Items": items
+    }
+    return payload
+
+# Step 4: Send data to Data Lake in batches
 def send_data_to_datalake(data, token):
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    for record in data:
-        response = requests.post(f"{API_URL}/data/{COLLECTION_NAME}", headers=headers, data=json.dumps(record))
-        if response.status_code != 200:
-            print(f"Failed to send record {record}: {response.text}")
+    
+    # Split the data into batches of 100 items
+    for i in range(0, len(data['Items']), 100):
+        batch = data['Items'][i:i + 100]
+        batch_payload = {
+            "CollectionName": COLLECTION_NAME,
+            "Items": batch
+        }
+        response = requests.post(f"{API_URL}/additems", headers=headers, data=json.dumps(batch_payload))
+        
+        # Print the response details for debugging
+        if response.status_code == 200:
+            print(f"Batch {i//100 + 1} sent successfully.")
+        else:
+            print(f"Failed to send batch {i//100 + 1}: {response.status_code} - {response.text}")
 
 # Main execution
 def main(file_path):
@@ -42,6 +128,5 @@ def main(file_path):
     token = authenticate()
     send_data_to_datalake(prepared_data, token)
 
-# Example usage
 if __name__ == "__main__":
-    main("DeveloperAssessmentData.csv")  # Replace with actual path to your CSV file
+    main(file_path)  # Use the full path defined above
