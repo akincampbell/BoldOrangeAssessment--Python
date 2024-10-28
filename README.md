@@ -1,2 +1,2 @@
 # BoldOrangeAssessment--Python
-## run program with python data_upload.py
+#### run program with bash 'python data_upload.py'
