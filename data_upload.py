@@ -3,12 +3,13 @@ import requests
 import json
 import os
 
-# Constants
+### Constants
 API_URL = "https://datalake.boldorange.com/api/v1"  # Base URL for the API
 USERNAME = "acampbell"  # Replace with your username
 PASSWORD = "rVZ3FkzqcGawjEM952PWL6"  # Replace with your password
 COLLECTION_NAME = "AkinExample"  # Change this to your collection name
 
+### Identify the CSV
 # Define the path to the CSV file
 file_path = os.path.join(os.path.dirname(__file__), "DeveloperAssessmentData.csv")  # Corrected filename
 
@@ -20,7 +21,7 @@ print(os.listdir(os.path.dirname(__file__)))  # Lists all files in the directory
 if not os.path.isfile(file_path):
     raise FileNotFoundError(f"The file {file_path} does not exist. Please check the file name and path.")
 
-# Step 1: Authenticate and get token
+### Step 1: Authenticate and get token
 def authenticate():
     auth_url = f"{API_URL}/authenticate"  # Authentication URL
     payload = {
@@ -39,7 +40,7 @@ def authenticate():
     else:
         raise Exception("Authentication failed.")
 
-# Step 2: Read the CSV file
+### Step 2: Read the CSV file
 def read_csv(file_path):
     data = pd.read_csv(file_path, delimiter='|')  # Specify '|' as the delimiter
     data.columns = data.columns.str.strip().str.replace(',', '')  # Clean column names and remove commas
@@ -50,10 +51,21 @@ def read_csv(file_path):
 # Helper function to convert to float and handle special cases
 def to_float(value):
     if pd.isna(value) or value in ['-', '']:  # Handle NaN, '-' or empty string
-        return 0.0  # You can adjust this if you prefer np.nan
+        return 0.0  # Default value if invalid
+    
+    value_str = str(value).strip()
+    
+    # Check for special cases like ' $-   ' or any negative value represented as a string
+    if value_str.startswith('(') and value_str.endswith(')'):
+        value_str = '-' + value_str[1:-1].replace('$', '').replace(',', '').strip()
+    elif ' $-' in value_str or value_str == '$-':
+        return 0.0  # Handle cases where the value is a string indicating no value (e.g., ' $-   ')
+    else:
+        # Clean other dollar and comma formats
+        value_str = value_str.replace('$', '').replace(',', '').strip()
+        
     try:
-        # Attempt to clean and convert the value
-        return float(str(value).replace('$', '').replace(',', '').strip())
+        return float(value_str)
     except ValueError:
         print(f"Warning: Could not convert '{value}' to float. Setting to 0.0.")
         return 0.0  # or handle it as needed
@@ -63,12 +75,12 @@ def clean_year(value):
     if pd.isna(value):
         return 0  # or use np.nan based on your needs
     try:
-        return int(str(value).strip().replace(',', ''))  # Clean and convert year
+        return int(str(value).strip().replace(',', '').replace(' ', ''))  # Clean and convert year
     except ValueError:
         print(f"Warning: Could not convert '{value}' to int. Setting to 0.")
         return 0  # or handle it as needed
 
-# Step 3: Prepare the data for API
+### Step 3: Prepare the data for API
 def prepare_data(data):
     items = []
     for index, row in data.iterrows():
@@ -102,7 +114,7 @@ def prepare_data(data):
     }
     return payload
 
-# Step 4: Send data to Data Lake in batches
+### Step 4: Send data to Data Lake in batches
 def send_data_to_datalake(data, token):
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     
@@ -121,7 +133,7 @@ def send_data_to_datalake(data, token):
         else:
             print(f"Failed to send batch {i//100 + 1}: {response.status_code} - {response.text}")
 
-# Main execution
+### Main execution
 def main(file_path):
     data = read_csv(file_path)
     prepared_data = prepare_data(data)
